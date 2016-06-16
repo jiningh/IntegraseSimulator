@@ -57,10 +57,12 @@ class Strand:
 		if self.storedorigin is not None: return self.storedorigin
 		if 'GENOME' in [i.upper() for i in self.se]: return 'GENOME'
 		#go through and try to find the origin
+		outs = []
 		for i in self.se:
 			if i.upper() in self.allowableOrigins: 
 				self.storedorigin = i.upper()
-				return i.upper()
+				outs.append(i.upper())
+				#return i.upper()
 		#if nothing found impose the originSeq rules
 		for key, seq in self.originSeq.items():
 			i = -1
@@ -69,8 +71,16 @@ class Strand:
 				i = self.se.index(seq[0], i + 1, len(self.se) - len(seq) + 1)
 				if seq == self.se[i:i+len(seq)]: 
 					self.storedorigin = key
-					return key
-		return None
+					outs.append(key.upper())
+		if len(outs) == 0: return None
+		if 'GENOME' in outs: 
+			self.storedorigin = 'GENOME'
+		else:
+			shortout = list(set(outs))
+			if len(shortout) > 1: raise RuntimeError('Multiple plasmid origin on non-genomic strand found')
+			self.storedorigin = shortout[0]
+		return self.storedorigin
+
 	#Is this strand a genomic strand (does it contain a genomic origin)
 	def isGenome(self):
 		if self.genome is not None: return self.genome
@@ -340,6 +350,14 @@ class DNAState:
 		for i in self.strands:
 			out += i.getTranscription()
 		return out
+	#get all origins in all possible strands
+	def getAllOrigins(self):
+		out = []
+		for i in self.strands:
+			out.append(i.origin())
+			for j in i.originSeq:
+				out.append(j)
+		return out
 	#count the number of plasmid species given an input origin
 	def countPlasmidSpecies(self, origin):
 		if origin not in self.plasmidSpecies:
@@ -363,7 +381,7 @@ class ParameterSet:
 	#unimolecular reaction rate given the same parameters as above
 	sameStrand = lambda s, kflip, n, Kd: kflip*n*(n-1)*(n-2)*(n-3)/(Kd**4+Kd**3*n+Kd**2*n*(n-1)+Kd*n*(n-1)*(n-2)+n*(n-1)*(n-2)*(n-3))
 	#origin regeneration parameters for plasmids
-	origins = {'COLE1':{'kprod':50.,'kd':100}}
+	origins = {}
 	#plasmid degradation parameter
 	plasmiddeg = 0.3
 	#plasmid production rate given plasmid parameters and n number of plasmids
@@ -371,19 +389,27 @@ class ParameterSet:
 	#plasmid degradation rate given plasmid parameter and n counts
 	pdege = lambda s, kdeg, n: kdeg*n
 	#loading default parameters
-	def __init__(self, integrases, genes):
+	def __init__(self, integrases, genes, origins):
 		#active is when the inducer is on, it can either be a lambda, or a list of tuples bopunding on times
 		#ex. [(0, 10),(20,50)]
+		#these numbers came from Victoria's paper, first appendix
 		template = {'kflip1':0.4, 'kflip2':0.4, 'kprod':50, 'kleak':0.00*50, 'kdeg':0.3, 'Kd':10, 'active':lambda t: 1}
+		#general numbers, from integrase numbers because integrases are chemicals too.
 		genetemplate = {'kprod':50, 'kdeg':0.3}
+		#see the write up on the wiki to see how I get these numbers
+		origintemplate = {'kprod':1., 'kd':7./3., 'copynumber':60}
 		for i in integrases:
 			self.pI.update({i:template.copy()})
 		for i in genes:
 			self.genes.update({i:genetemplate.copy()})
+		for i in origins:
+			self.origins.update({i:origintemplate.copy()})
 	#plasmid production given origin, number of plasmid species
 	def pprod(self, n, origin, nspecies):
 		if origin is None: return 0.0
-		return self.pprode(self.origins[origin]['kprod']/float(nspecies), self.origins[origin]['kd']/float(nspecies), n)
+		#fetch steady state for this specific species of plasmid
+		ss = self.origins[origin]['copynumber'] / float(nspecies)
+		return self.pprode(self.origins[origin]['kprod']*ss, self.origins[origin]['kd']*ss, n)
 		#return self.pprode(self.origins[origin]['kprod'], self.origins[origin]['kd'], n)
 	#plasmid degradation
 	def pdeg(self, n):
@@ -532,9 +558,9 @@ class Model:
 			pI += strandCounts[i][0].integrase()
 			genes += strandCounts[i][0].getAllGenes()
 		self.simgene = simgene
-		self.param = ParameterSet(list(set(pI)), list(set(genes)))
 		self.refresh()
-
+		self.param = ParameterSet(list(set(pI)), list(set(genes)), self.dsc.curState.getAllOrigins())
+		
 	#Refreshes the model, and recycles the counter object
 	def refresh(self):
 		self.dsc = None
