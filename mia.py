@@ -382,8 +382,8 @@ class ParameterSet:
 	sameStrand = lambda s, kflip, n, Kd: kflip*n*(n-1)*(n-2)*(n-3)/(Kd**4+Kd**3*n+Kd**2*n*(n-1)+Kd*n*(n-1)*(n-2)+n*(n-1)*(n-2)*(n-3))
 	#origin regeneration parameters for plasmids
 	origins = {}
-	#plasmid degradation parameter
-	plasmiddeg = 0.3
+	#general plasmid degradation for strands with no ori
+	pdeggen = 0.3
 	#plasmid production rate given plasmid parameters and n number of plasmids
 	pprode = lambda s, kprod, kd, n: kprod*(n/kd)/(1+(n/kd))
 	#plasmid degradation rate given plasmid parameter and n counts
@@ -397,7 +397,7 @@ class ParameterSet:
 		#general numbers, from integrase numbers because integrases are chemicals too.
 		genetemplate = {'kprod':50, 'kdeg':0.3}
 		#see the write up on the wiki to see how I get these numbers
-		origintemplate = {'kprod':1., 'kd':7./3., 'copynumber':60}
+		origintemplate = {'kprod':1., 'kd':7./3., 'copynumber':60, 'kdeg':0.3}
 		for i in integrases:
 			self.pI.update({i:template.copy()})
 		for i in genes:
@@ -412,8 +412,9 @@ class ParameterSet:
 		return self.pprode(self.origins[origin]['kprod']*ss, self.origins[origin]['kd']*ss, n)
 		#return self.pprode(self.origins[origin]['kprod'], self.origins[origin]['kd'], n)
 	#plasmid degradation
-	def pdeg(self, n):
-		return self.pdege(self.plasmiddeg, n)
+	def pdeg(self, n, origin):
+		if origin is None: return self.pdege(self.pdeggen, n)
+		return self.pdege(self.origins[origin]['kdeg'], n)
 	#gene production
 	def gprod(self, gene): return self.genes[gene]['kprod']
 	#gene degradation
@@ -635,7 +636,7 @@ class Model:
 		for i in rdactions:
 			if i[0] == 'pdeg':
 				#if self.param.pdeg(self.dsc.count(i[1])) != 0: print(i[1])
-				propensity.append(self.param.pdeg(self.dsc.count(i[1])))
+				propensity.append(self.param.pdeg(self.dsc.count(i[1]), i[1].origin()))
 			if i[0] == 'pregen':
 				#if self.param.pprod(self.dsc.count(i[1]), i[1].origin()) != 0: print(self.param.pprod(self.dsc.count(i[1]), i[1].origin()))
 				propensity.append(self.param.pprod(self.dsc.count(i[1]), i[1].origin(), self.dsc.curState.countPlasmidSpecies(i[1].origin())))
